@@ -24,3 +24,8 @@ Automating static code analysis in your CI/CD pipeline helps:
 - Catch issues (bugs, vulnerabilities) early
 - Enforce quality gates before merging code
 - Maintain clean, reliable, and secure code over time
+
+
+---
+📘 **Read the full step-by-step blog here:**  
+[Integrate SonarQube For Nodejs with Github Actions](https://visheshblog.hashnode.dev/day-67-integrate-sonarqube-for-nodejs-with-github-actions)

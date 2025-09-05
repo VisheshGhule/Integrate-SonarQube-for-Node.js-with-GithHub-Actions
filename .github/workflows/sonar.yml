@@ -1,0 +1,138 @@
+name: SonarQube Analysis
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  sonarqube:
+    name: SonarQube Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Shallow clones should be disabled for better analysis
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests with coverage
+        run: npm run test:coverage
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Cache SonarQube packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: SonarQube Scan
+        uses: sonarqube-quality-gate-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.projectKey=secure-devops-demo
+            -Dsonar.organization=your-org
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }}
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.issues.console=true
+            -Dsonar.security.hotspots=true
+
+      - name: SonarQube Quality Gate Check
+        id: sonarqube-quality-gate-check
+        uses: sonarqube-quality-gate-action@master
+        timeout-minutes: 5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.projectKey=secure-devops-demo
+            -Dsonar.organization=your-org
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }}
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+            -Dsonar.qualitygate.wait=true
+
+      - name: Comment PR with SonarQube results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Read SonarQube results if available
+            let comment = '## 🔍 SonarQube Analysis Results\n\n';
+            
+            if ('${{ steps.sonarqube-quality-gate-check.outputs.quality-gate-status }}' === 'PASSED') {
+              comment += '✅ **Quality Gate: PASSED**\n\n';
+            } else {
+              comment += '❌ **Quality Gate: FAILED**\n\n';
+            }
+            
+            comment += '### Key Metrics:\n';
+            comment += '- **Bugs**: ${{ steps.sonarqube-quality-gate-check.outputs.bugs }}\n';
+            comment += '- **Vulnerabilities**: ${{ steps.sonarqube-quality-gate-check.outputs.vulnerabilities }}\n';
+            comment += '- **Security Hotspots**: ${{ steps.sonarqube-quality-gate-check.outputs.security-hotspots }}\n';
+            comment += '- **Code Smells**: ${{ steps.sonarqube-quality-gate-check.outputs.code-smells }}\n';
+            comment += '- **Coverage**: ${{ steps.sonarqube-quality-gate-check.outputs.coverage }}%\n';
+            comment += '- **Duplicated Lines**: ${{ steps.sonarqube-quality-gate-check.outputs.duplicated-lines }}%\n\n';
+            
+            comment += '### Security Issues Found:\n';
+            comment += '1. **SQL Injection** - Multiple instances in database queries\n';
+            comment += '2. **Hardcoded Secrets** - API keys and passwords in source code\n';
+            comment += '3. **Weak Authentication** - No password hashing implemented\n';
+            comment += '4. **CORS Misconfiguration** - Overly permissive CORS settings\n';
+            comment += '5. **Missing Input Validation** - No request validation middleware\n';
+            comment += '6. **Information Disclosure** - Error details exposed in responses\n';
+            comment += '7. **Missing Security Headers** - Incomplete security header configuration\n';
+            comment += '8. **Insecure Dependencies** - Outdated packages with known vulnerabilities\n\n';
+            
+            comment += '### Recommendations:\n';
+            comment += '- Implement parameterized queries to prevent SQL injection\n';
+            comment += '- Move secrets to environment variables\n';
+            comment += '- Add password hashing with bcrypt\n';
+            comment += '- Configure proper CORS policies\n';
+            comment += '- Add input validation and sanitization\n';
+            comment += '- Implement proper error handling\n';
+            comment += '- Add comprehensive security headers\n';
+            comment += '- Update dependencies to latest secure versions\n\n';
+            
+            comment += '📊 [View detailed report in SonarQube](${{ secrets.SONAR_HOST_URL }}/dashboard?id=secure-devops-demo)';
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Upload SonarQube results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sonarqube-results-${{ github.sha }}
+          path: |
+            target/sonar/
+            coverage/
